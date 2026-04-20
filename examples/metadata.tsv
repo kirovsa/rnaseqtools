@@ -1,0 +1,5 @@
+sample	group	rsem_path
+ctrl_1	control	examples/ctrl_1_genes.results
+ctrl_2	control	examples/ctrl_2_genes.results
+treat_1	treatment	examples/treat_1_genes.results
+treat_2	treatment	examples/treat_2_genes.results
