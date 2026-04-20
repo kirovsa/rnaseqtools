@@ -116,8 +116,8 @@ GENE_B	2
 GENE_E	2
 ```
 
-- `GENE_A` passes in both control samples and both treatment samples (2 per group → max = 2).
-- `GENE_B` passes in both control samples (count ≥ 10 **and** TPM ≥ 1), 0 treatment samples → kept.
+- `GENE_A` passes in both control samples and both treatment samples (2 passing in each group; `max_n_pass_in_any_group` = 2) → kept.
+- `GENE_B` passes in both control samples (2/2, count ≥ 10 **and** TPM ≥ 1) but 0 treatment samples (count < 10 and TPM < 1) → kept because the control group has ≥ 2 passing samples.
 - `GENE_E` passes in both treatment samples, 0 control samples → kept.
 - `GENE_C` passes in only 1 sample per group → **filtered**.
 - `GENE_D` never reaches the thresholds → **filtered**.
