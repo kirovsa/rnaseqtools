@@ -153,3 +153,182 @@ Rscript scripts/filter_rsem_by_group_prevalence.R \
   --path-col   FilePath \
   --output     filtered_genes.tsv
 ```
+
+---
+
+## filter_multi_sample_by_group_prevalence.R
+
+Filter genes from pre-merged wide-format count and FPKM matrices based on group-level prevalence:
+a gene is **kept** if it passes per-sample count/FPKM thresholds in at least a minimum number of
+samples within **at least one** biological group.
+
+Use this script when you already have multi-sample count and FPKM matrices (genes as rows,
+samples as columns) rather than individual per-sample RSEM files.
+
+### Requirements
+
+- R (≥ 4.0)
+- R packages: `optparse`, `data.table`
+
+```r
+install.packages(c("optparse", "data.table"))
+```
+
+### Inputs
+
+| File | Description |
+|------|-------------|
+| Counts matrix | Wide-format TSV; genes as rows, samples as columns |
+| FPKM matrix | Wide-format TSV; genes as rows, samples as columns |
+| Metadata TSV/CSV *(optional)* | One row per sample; must contain a sample ID column and a group label column. If omitted, all samples are treated as a single group. |
+
+#### Counts matrix format
+
+The first column is used as the gene identifier by default. Any additional non-sample columns
+(e.g. a gene-symbol column) are listed in `--counts-skip-cols`.
+
+| *(gene_id)* | geneID | sample_1 | sample_2 | … |
+|-------------|--------|----------|----------|---|
+| ENSG00000160072 | ATAD3B | 2230 | 2035 | … |
+
+#### FPKM matrix format (default column names)
+
+| GeneSymbol | Ensembl_ID | sample_1 | sample_2 | … |
+|------------|------------|----------|----------|---|
+| ATAD3B | ENSG00000160072 | 17.42 | 16.84 | … |
+
+#### Metadata format (default column names)
+
+| sample | group |
+|--------|-------|
+| sample_1 | control |
+| sample_2 | control |
+| sample_3 | treatment |
+| sample_4 | treatment |
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--counts` | *(required)* | Multi-sample counts file (wide format) |
+| `--fpkm` | *(required)* | Multi-sample FPKM file (wide format) |
+| `-o`, `--output` | *(required)* | Output TSV of genes passing the filter |
+| `-m`, `--metadata` | *(optional)* | Metadata file (TSV or CSV); if omitted all samples form one group |
+| `--meta-sep` | `\t` | Metadata delimiter (`\t` for TSV, `,` for CSV) |
+| `--sample-col` | `sample` | Metadata column for sample ID |
+| `--group-col` | `group` | Metadata column for group label |
+| `--counts-gene-col` | *(first column)* | Column name in the counts file used as gene identifier |
+| `--counts-skip-cols` | `geneID` | Comma-separated non-sample columns in the counts file to ignore |
+| `--fpkm-gene-col` | `Ensembl_ID` | Column name in the FPKM file used as gene identifier |
+| `--fpkm-skip-cols` | `GeneSymbol` | Comma-separated non-sample columns in the FPKM file to ignore |
+| `--min-count` | `10` | Minimum count for a sample to be considered "passing" |
+| `--min-fpkm` | `1` | Minimum FPKM for a sample to be considered "passing" |
+| `--logic` | `AND` | Combine thresholds within a sample: `AND` or `OR` |
+| `--min-samples` | `2` | Minimum number of passing samples required in any one group |
+| `--keep-nonfinite` | `FALSE` | Do not drop rows with non-finite count/FPKM values |
+| `--write-summary` | `FALSE` | Print a brief summary to stdout |
+
+### Filtering logic
+
+For each gene and each sample:
+
+1. A sample is **passing** if:
+   - `--logic AND` (default): `count >= --min-count` **and** `FPKM >= --min-fpkm`
+   - `--logic OR`: `count >= --min-count` **or** `FPKM >= --min-fpkm`
+
+2. Within each group, count the number of passing samples for each gene.
+
+3. A gene is **kept** if, in **at least one** group, it is passing in ≥ `--min-samples` samples.
+
+Only genes whose identifier appears in **both** the counts and FPKM files are evaluated. Only
+samples whose name appears in **both** files are used.
+
+### Output
+
+A tab-delimited file with two columns:
+
+| gene_id | max_n_pass_in_any_group |
+|---------|------------------------|
+| ENSG00000160072 | 5 |
+| … | … |
+
+Rows are ordered by `max_n_pass_in_any_group` (descending), then `gene_id`.
+
+### Example
+
+The `examples/` directory contains ready-to-use wide-format input files:
+
+```
+examples/
+├── multi_sample_metadata.tsv         # 20 samples across 4 groups (PINT, PINU, SCRT, SCRU)
+├── multi_sample_example_counts.txt   # counts matrix (genes × samples)
+└── multi_sample_example_fpkm.txt    # FPKM matrix (genes × samples)
+```
+
+**Run with default settings** (AND logic, min-count 10, min-FPKM 1, min-samples 2):
+
+```bash
+Rscript scripts/filter_multi_sample_by_group_prevalence.R \
+  --counts   examples/multi_sample_example_counts.txt \
+  --fpkm     examples/multi_sample_example_fpkm.txt \
+  --metadata examples/multi_sample_metadata.tsv \
+  --output   filtered_genes.tsv \
+  --write-summary
+```
+
+Expected output (`filtered_genes.tsv`):
+
+```
+gene_id	max_n_pass_in_any_group
+ENSG00000160072	5
+```
+
+`ENSG00000160072` passes count ≥ 10 **and** FPKM ≥ 1 in all 5 samples of every group → kept
+with `max_n_pass_in_any_group` = 5.
+
+**Use OR logic** (keep a gene if it passes count **or** FPKM threshold in a sample):
+
+```bash
+Rscript scripts/filter_multi_sample_by_group_prevalence.R \
+  --counts   examples/multi_sample_example_counts.txt \
+  --fpkm     examples/multi_sample_example_fpkm.txt \
+  --metadata examples/multi_sample_metadata.tsv \
+  --output   filtered_genes_or.tsv \
+  --logic    OR \
+  --min-count 10 \
+  --min-fpkm  1
+```
+
+**Require passing in at least 4 samples within a group:**
+
+```bash
+Rscript scripts/filter_multi_sample_by_group_prevalence.R \
+  --counts      examples/multi_sample_example_counts.txt \
+  --fpkm        examples/multi_sample_example_fpkm.txt \
+  --metadata    examples/multi_sample_metadata.tsv \
+  --output      filtered_genes_strict.tsv \
+  --min-samples 4
+```
+
+**Run without a metadata file** (all samples treated as one group):
+
+```bash
+Rscript scripts/filter_multi_sample_by_group_prevalence.R \
+  --counts  examples/multi_sample_example_counts.txt \
+  --fpkm    examples/multi_sample_example_fpkm.txt \
+  --output  filtered_genes_nogroup.tsv
+```
+
+**Use custom gene-ID and skip-column names:**
+
+```bash
+Rscript scripts/filter_multi_sample_by_group_prevalence.R \
+  --counts           my_counts.txt \
+  --fpkm             my_fpkm.txt \
+  --metadata         my_samples.tsv \
+  --counts-gene-col  gene_id \
+  --counts-skip-cols symbol,biotype \
+  --fpkm-gene-col    ensembl_id \
+  --fpkm-skip-cols   gene_name \
+  --output           filtered_genes.tsv
+```
