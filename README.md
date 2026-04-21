@@ -5,6 +5,86 @@ Starting with a filtering script that is flexible and can combine both TPM and c
 
 ---
 
+## counts_to_tpm.R
+
+Convert raw counts to TPM (Transcripts Per Million) given per-gene lengths.
+Reads a single tab-delimited file with `gene`, `count`, and `length` columns and writes an
+equivalent file with the `count` column replaced by `TPM`.
+
+### Requirements
+
+- R (≥ 4.0)
+- R packages: `optparse`, `data.table`
+
+```r
+install.packages(c("optparse", "data.table"))
+```
+
+### Inputs
+
+| File | Description |
+|------|-------------|
+| Input TSV | One row per gene; must contain a gene ID column, a raw-count column, and a gene-length column (in bp) |
+
+#### Input format (default column names)
+
+| gene | count | length |
+|------|-------|--------|
+| GENE_A | 250 | 1500 |
+| GENE_B | 180 | 2000 |
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-i`, `--input` | *(required)* | Input tab-delimited file |
+| `-o`, `--output` | *(required)* | Output tab-delimited file |
+| `--gene-col` | `gene` | Column name for gene identifiers |
+| `--count-col` | `count` | Column name for raw counts |
+| `--length-col` | `length` | Column name for gene/transcript lengths (bp) |
+| `--tpm-col` | `TPM` | Column name to use for TPM values in the output |
+
+### TPM calculation
+
+For each gene *i*:
+
+1. **RPK** = count_i / (length_i / 1,000)
+2. **Scaling factor** = Σ RPK / 1,000,000
+3. **TPM_i** = RPK_i / scaling factor
+
+By construction, TPM values sum to 1,000,000 across all genes.
+
+### Output
+
+A tab-delimited file with the same columns as the input except the count column is replaced by TPM:
+
+| gene | TPM | length |
+|------|-----|--------|
+| GENE_A | 481347.77 | 1500 |
+| … | … | … |
+
+### Example
+
+```bash
+Rscript scripts/counts_to_tpm.R \
+  --input  examples/example_counts_length.tsv \
+  --output tpm_output.tsv
+```
+
+**Custom column names:**
+
+```bash
+Rscript scripts/counts_to_tpm.R \
+  --input      my_data.tsv \
+  --output     my_data_tpm.tsv \
+  --gene-col   gene_id \
+  --count-col  expected_count \
+  --length-col transcript_length \
+  --tpm-col    tpm
+```
+
+---
+
 ## filter_rsem_by_group_prevalence.R
 
 Filter genes from RSEM output based on group-level prevalence: a gene is **kept** if it passes
