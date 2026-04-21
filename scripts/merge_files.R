@@ -183,7 +183,7 @@ for (i in seq(2L, length(tables))) {
 }
 
 # ---- Write output ----
-fwrite(merged, opt$output, sep = "\t", quote = FALSE, na = "NA")
+fwrite(merged, opt$output, sep = opt$sep, quote = FALSE, na = "NA")
 
 # ---- Summary to stderr ----
 message(sprintf(
