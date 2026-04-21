@@ -1,0 +1,5 @@
+gene_id	score
+GENE_A	0.95
+GENE_B	0.80
+GENE_C	0.60
+GENE_D	0.70

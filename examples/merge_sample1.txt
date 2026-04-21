@@ -1,0 +1,4 @@
+gene_id	count	length
+GENE_A	250	1500
+GENE_B	180	2000
+GENE_C	90	800
