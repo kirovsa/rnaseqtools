@@ -20,7 +20,6 @@
 
 suppressWarnings(suppressMessages({
   library(optparse)
-  library(data.table)
 }))
 
 option_list <- list(
@@ -44,7 +43,8 @@ option_list <- list(
               help = "Input files have a header row. [default %default]"),
   make_option(c("--join"), type = "character", default = "outer",
               help = "Join type: 'outer' (full outer join, fills missing values with NA) or 'inner' (keep only rows present in all files). [default %default]",
-              metavar = "outer|inner")
+              metavar = "outer|inner"
+)
 )
 
 opt_parser <- OptionParser(
@@ -101,7 +101,7 @@ tables <- vector("list", length(file_paths))
 for (i in seq_along(file_paths)) {
   fp <- file_paths[[i]]
   dt <- tryCatch(
-    fread(fp, sep = opt$sep, header = opt$header, data.table = TRUE),
+    read.table(fp, sep = opt$sep, header = opt$header, stringsAsFactors = FALSE, check.names = FALSE),
     error = function(e) stop(sprintf("Error reading file '%s': %s", fp, conditionMessage(e)), call. = FALSE)
   )
 
@@ -135,7 +135,7 @@ for (i in seq_along(file_paths)) {
   }
 
   # Subset columns
-  dt <- dt[, idx, with = FALSE]
+  dt <- dt[, idx, drop = FALSE]
 
   # Identify the key column name in the subsetted table
   # (idx[1] is always key_idx because we prepended it above)
@@ -148,7 +148,7 @@ for (i in seq_along(file_paths)) {
     tables_so_far_names <- unique(unlist(lapply(tables[seq_len(i - 1L)], names)))
     dups <- intersect(non_key_cols, tables_so_far_names)
     for (d in dups) {
-      data.table::setnames(dt, d, paste0(d, ".", i))
+      names(dt)[names(dt) == d] <- paste0(d, ".", i)
     }
   }
 
@@ -167,14 +167,14 @@ key_name <- attr(tables[[1L]], "key_colname")
 for (i in seq_along(tables)) {
   kn <- attr(tables[[i]], "key_colname")
   if (kn != key_name) {
-    data.table::setnames(tables[[i]], kn, key_name)
+    names(tables[[i]])[names(tables[[i]]) == kn] <- key_name
   }
 }
 
 merged <- tables[[1L]]
 
 for (i in seq(2L, length(tables))) {
-  dt_right <- tables[[i]]
+  dt_right <- tables[[i]];
   if (join_type == "outer") {
     merged <- merge(merged, dt_right, by = key_name, all = TRUE)
   } else {
@@ -183,7 +183,7 @@ for (i in seq(2L, length(tables))) {
 }
 
 # ---- Write output ----
-fwrite(merged, opt$output, sep = opt$sep, quote = FALSE, na = "NA")
+write.table(merged, opt$output, sep = opt$sep, quote = FALSE, row.names = FALSE, na = "NA")
 
 # ---- Summary to stderr ----
 message(sprintf(
