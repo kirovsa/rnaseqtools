@@ -85,6 +85,104 @@ Rscript scripts/counts_to_tpm.R \
 
 ---
 
+## merge_files.R
+
+Merge a list of tab-delimited (or CSV) files by a specified key column (identified by 1-based
+index) and retain only a user-specified set of columns (also identified by 1-based index).
+Merging is performed as a sequential full outer join (or inner join, with `--join inner`) across
+all input files.
+
+### Requirements
+
+- R (≥ 4.0)
+- R packages: `optparse`, `data.table`
+
+```r
+install.packages(c("optparse", "data.table"))
+```
+
+### Inputs
+
+| File | Description |
+|------|-------------|
+| Input files (TSV/CSV) | Two or more delimited files sharing a common key column |
+
+#### Input format example
+
+**merge_sample1.txt**
+
+| gene_id | count | length |
+|---------|-------|--------|
+| GENE_A  | 250   | 1500   |
+| GENE_B  | 180   | 2000   |
+| GENE_C  | 90    | 800    |
+
+**merge_sample2.txt**
+
+| gene_id | tpm   | flag |
+|---------|-------|------|
+| GENE_A  | 481.3 | 1    |
+| GENE_B  | 276.4 | 0    |
+| GENE_D  | 120.5 | 1    |
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-f`, `--files` | *(required)* | Comma-separated list of input file paths |
+| `-k`, `--key` | `1` | 1-based column index to use as the merge key |
+| `-c`, `--columns` | *(all columns)* | Comma-separated 1-based column indices to retain from each file |
+| `-o`, `--output` | `merged_output.txt` | Output file path |
+| `-s`, `--sep` | `\t` | Field separator for input and output files |
+| `--header` | `TRUE` | Input files have a header row |
+| `--join` | `outer` | Join type: `outer` (full outer join) or `inner` (inner join) |
+
+### Output
+
+A tab-delimited file with the key column followed by the retained columns from each file.
+Missing values (full outer join only) are written as `NA`.
+
+| gene_id | count | tpm   | score |
+|---------|-------|-------|-------|
+| GENE_A  | 250   | 481.3 | 0.95  |
+| GENE_B  | 180   | 276.4 | 0.80  |
+| GENE_C  | 90    | NA    | 0.60  |
+| GENE_D  | NA    | 120.5 | 0.70  |
+
+A brief summary (number of files, rows, and columns) is printed to `stderr`.
+
+### Example
+
+```bash
+Rscript scripts/merge_files.R \
+  --files   examples/merge_sample1.txt,examples/merge_sample2.txt,examples/merge_sample3.txt \
+  --key     1 \
+  --columns 1,2 \
+  --output  merged.txt
+```
+
+**Inner join** (keep only rows present in all files):
+
+```bash
+Rscript scripts/merge_files.R \
+  --files  examples/merge_sample1.txt,examples/merge_sample2.txt \
+  --key    1 \
+  --output merged_inner.txt \
+  --join   inner
+```
+
+**CSV input with custom separator:**
+
+```bash
+Rscript scripts/merge_files.R \
+  --files  sample_a.csv,sample_b.csv \
+  --sep    , \
+  --key    1 \
+  --output merged.txt
+```
+
+---
+
 ## filter_rsem_by_group_prevalence.R
 
 Filter genes from RSEM output based on group-level prevalence: a gene is **kept** if it passes
