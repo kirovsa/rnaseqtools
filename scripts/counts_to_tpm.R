@@ -2,7 +2,6 @@
 
 suppressWarnings(suppressMessages({
   library(optparse)
-  library(data.table)
 }))
 
 option_list <- list(
@@ -42,7 +41,7 @@ length_col <- opt[["length-col"]]
 tpm_col    <- opt[["tpm-col"]]
 
 # ---- Read input ----
-dt <- fread(opt$input, sep = "\t", header = TRUE)
+dt <- read.table(opt$input, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
 
 for (col in c(gene_col, count_col, length_col)) {
   if (!col %in% names(dt)) {
@@ -70,12 +69,12 @@ if (!is.finite(scaling_factor) || scaling_factor == 0) {
 tpm <- rpk / scaling_factor
 
 # ---- Build output: replace count column with TPM ----
-out <- copy(dt)
-out[, (tpm_col)   := tpm]
-out[, (count_col) := NULL]
 col_order <- names(dt)
 col_order[col_order == count_col] <- tpm_col
-setcolorder(out, col_order)
+out <- dt
+out[[tpm_col]]   <- tpm
+out[[count_col]] <- NULL
+out <- out[, col_order, drop = FALSE]
 
 # ---- Write output ----
-fwrite(out, opt$output, sep = "\t", quote = FALSE)
+write.table(out, opt$output, sep = "\t", quote = FALSE, row.names = FALSE)
