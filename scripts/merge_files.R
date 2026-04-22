@@ -101,7 +101,7 @@ tables <- vector("list", length(file_paths))
 for (i in seq_along(file_paths)) {
   fp <- file_paths[[i]]
   dt <- tryCatch(
-    read.table(fp, sep = opt$sep, header = opt$header, stringsAsFactors = FALSE, check.names = FALSE),
+    read.table(fp, sep = opt$sep, header = opt$header, quote="", stringsAsFactors = FALSE, check.names = FALSE),
     error = function(e) stop(sprintf("Error reading file '%s': %s", fp, conditionMessage(e)), call. = FALSE)
   )
 
