@@ -2,7 +2,6 @@
 
 suppressWarnings(suppressMessages({
   library(optparse)
-  library(data.table)
 }))
 
 option_list <- list(
@@ -81,7 +80,8 @@ counts_skip <- parse_list(opt$`counts-skip-cols`)
 fpkm_skip   <- parse_list(opt$`fpkm-skip-cols`)
 
 # ---- Read counts ----
-counts_dt <- fread(opt$counts, sep = "\t", header = TRUE, data.table = TRUE)
+counts_dt <- read.table(opt$counts, sep = "\t", header = TRUE,
+                        stringsAsFactors = FALSE, check.names = FALSE)
 
 # Rename any blank column names (e.g. when the file has a leading delimiter in the header row)
 blank_cols <- which(!nzchar(names(counts_dt)))
@@ -105,7 +105,8 @@ if (length(counts_samples) == 0) {
 }
 
 # ---- Read FPKM ----
-fpkm_dt <- fread(opt$fpkm, sep = "\t", header = TRUE, data.table = TRUE)
+fpkm_dt <- read.table(opt$fpkm, sep = "\t", header = TRUE,
+                      stringsAsFactors = FALSE, check.names = FALSE)
 
 fpkm_gene_col <- opt$`fpkm-gene-col`
 if (!fpkm_gene_col %in% names(fpkm_dt)) {
@@ -138,7 +139,8 @@ if (length(common_samples) < length(counts_samples) || length(common_samples) < 
 
 # ---- Load or construct sample-to-group mapping ----
 if (!is.null(opt$metadata)) {
-  meta <- fread(opt$metadata, sep = opt$`meta-sep`, header = TRUE, data.table = TRUE)
+  meta <- read.table(opt$metadata, sep = opt$`meta-sep`, header = TRUE,
+                     stringsAsFactors = FALSE, check.names = FALSE)
 
   need_meta <- c(opt$`sample-col`, opt$`group-col`)
   missing_meta <- setdiff(need_meta, names(meta))
@@ -150,91 +152,109 @@ if (!is.null(opt$metadata)) {
     ), call. = FALSE)
   }
 
-  meta <- unique(meta[, .(
-    sample = as.character(get(opt$`sample-col`)),
-    group  = as.character(get(opt$`group-col`))
-  )])
+  meta <- unique(data.frame(
+    sample = as.character(meta[[opt$`sample-col`]]),
+    group  = as.character(meta[[opt$`group-col`]]),
+    stringsAsFactors = FALSE
+  ))
 
   if (anyNA(meta$sample) || any(meta$sample == "")) stop("Metadata has empty/NA sample IDs.", call. = FALSE)
   if (anyNA(meta$group)  || any(meta$group == ""))  stop("Metadata has empty/NA group labels.", call. = FALSE)
 
   # Restrict to samples present in both files
-  meta <- meta[sample %in% common_samples]
+  meta <- meta[meta$sample %in% common_samples, ]
   if (nrow(meta) == 0) {
     stop("No metadata entries match the common samples found in counts and FPKM files.", call. = FALSE)
   }
 
   analysis_samples <- meta$sample
 } else {
-  meta <- data.table(sample = common_samples, group = "all")
+  meta <- data.frame(sample = common_samples, group = "all", stringsAsFactors = FALSE)
   analysis_samples <- common_samples
 }
 
 # ---- Build per-sample pass/fail table ----
 # Extract relevant columns from counts and fpkm
-counts_sub <- counts_dt[, c(counts_gene_col, analysis_samples), with = FALSE]
-setnames(counts_sub, counts_gene_col, "gene_id")
+counts_sub <- counts_dt[, c(counts_gene_col, analysis_samples), drop = FALSE]
+names(counts_sub)[names(counts_sub) == counts_gene_col] <- "gene_id"
 
-fpkm_sub <- fpkm_dt[, c(fpkm_gene_col, analysis_samples), with = FALSE]
-setnames(fpkm_sub, fpkm_gene_col, "gene_id")
+fpkm_sub <- fpkm_dt[, c(fpkm_gene_col, analysis_samples), drop = FALSE]
+names(fpkm_sub)[names(fpkm_sub) == fpkm_gene_col] <- "gene_id"
 
-counts_sub[, gene_id := as.character(gene_id)]
-fpkm_sub[,  gene_id := as.character(gene_id)]
+counts_sub$gene_id <- as.character(counts_sub$gene_id)
+fpkm_sub$gene_id   <- as.character(fpkm_sub$gene_id)
 
 # Keep only genes present in both files
 all_genes <- intersect(counts_sub$gene_id, fpkm_sub$gene_id)
 if (length(all_genes) == 0) {
   stop("No shared gene IDs found between counts and FPKM files.", call. = FALSE)
 }
-counts_sub <- counts_sub[gene_id %in% all_genes]
-fpkm_sub   <- fpkm_sub[gene_id %in% all_genes]
+counts_sub <- counts_sub[counts_sub$gene_id %in% all_genes, ]
+fpkm_sub   <- fpkm_sub[fpkm_sub$gene_id %in% all_genes, ]
 
 # Melt to long format for vectorised evaluation
-counts_long <- melt(counts_sub, id.vars = "gene_id",
-                    variable.name = "sample", value.name = "count")
-fpkm_long   <- melt(fpkm_sub,   id.vars = "gene_id",
-                    variable.name = "sample", value.name = "fpkm")
+# melt_df: convert a wide data.frame to long format.
+# id_var: name of the column to keep as the row identifier.
+# variable_name: name for the new column containing the original column names.
+# value_name: name for the new column containing the original cell values.
+melt_df <- function(df, id_var, variable_name, value_name) {
+  value_vars <- setdiff(names(df), id_var)
+  do.call(rbind, lapply(value_vars, function(col) {
+    tmp <- df[, id_var, drop = FALSE]
+    tmp[[variable_name]] <- col
+    tmp[[value_name]]    <- df[[col]]
+    tmp
+  }))
+}
 
-counts_long[, count := as.numeric(count)]
-fpkm_long[,  fpkm  := as.numeric(fpkm)]
+counts_long <- melt_df(counts_sub, id_var = "gene_id", variable_name = "sample", value_name = "count")
+fpkm_long   <- melt_df(fpkm_sub,   id_var = "gene_id", variable_name = "sample", value_name = "fpkm")
+
+counts_long$count <- as.numeric(counts_long$count)
+fpkm_long$fpkm    <- as.numeric(fpkm_long$fpkm)
 
 # Merge counts and FPKM long tables
 ps <- merge(counts_long, fpkm_long, by = c("gene_id", "sample"), all = FALSE)
 
 # Attach group labels
 ps <- merge(ps, meta, by = "sample", all.x = TRUE)
-ps <- ps[!is.na(group)]   # drop samples without a group assignment
+ps <- ps[!is.na(ps$group), ]   # drop samples without a group assignment
 
 if (!opt$keep_nonfinite) {
-  ps <- ps[is.finite(count) & is.finite(fpkm)]
+  ps <- ps[is.finite(ps$count) & is.finite(ps$fpkm), ]
 }
 
 # Evaluate per-sample pass/fail
 if (logic == "AND") {
-  ps[, pass := (count >= opt$`min-count`) & (fpkm >= opt$`min-fpkm`)]
+  ps$pass <- (ps$count >= opt$`min-count`) & (ps$fpkm >= opt$`min-fpkm`)
 } else {
-  ps[, pass := (count >= opt$`min-count`) | (fpkm >= opt$`min-fpkm`)]
+  ps$pass <- (ps$count >= opt$`min-count`) | (ps$fpkm >= opt$`min-fpkm`)
 }
 
 # Count passing samples per gene per group
-group_counts <- ps[pass == TRUE, .(n_pass = uniqueN(sample)), by = .(group, gene_id)]
+ps_pass <- ps[ps$pass == TRUE, ]
+group_counts <- aggregate(sample ~ group + gene_id, data = ps_pass,
+                          FUN = function(x) length(unique(x)))
+names(group_counts)[names(group_counts) == "sample"] <- "n_pass"
 
 # For each gene, find the max passing-sample count across all groups
-max_pass_by_gene <- group_counts[, .(max_n_pass_in_any_group = max(n_pass, na.rm = TRUE)), by = gene_id]
+max_pass_by_gene <- aggregate(n_pass ~ gene_id, data = group_counts,
+                               FUN = function(x) max(x, na.rm = TRUE))
+names(max_pass_by_gene)[names(max_pass_by_gene) == "n_pass"] <- "max_n_pass_in_any_group"
 
 # Genes that never pass in any sample won't appear in group_counts; fill with 0
 max_pass_by_gene <- merge(
-  data.table(gene_id = all_genes),
+  data.frame(gene_id = all_genes, stringsAsFactors = FALSE),
   max_pass_by_gene,
   by = "gene_id",
   all.x = TRUE
 )
-max_pass_by_gene[is.na(max_n_pass_in_any_group), max_n_pass_in_any_group := 0L]
+max_pass_by_gene$max_n_pass_in_any_group[is.na(max_pass_by_gene$max_n_pass_in_any_group)] <- 0L
 
-kept <- max_pass_by_gene[max_n_pass_in_any_group >= opt$`min-samples`]
+kept <- max_pass_by_gene[max_pass_by_gene$max_n_pass_in_any_group >= opt$`min-samples`, ]
 
-setorder(kept, -max_n_pass_in_any_group, gene_id)
-fwrite(kept, file = opt$output, sep = "\t", quote = FALSE, na = "NA")
+kept <- kept[order(-kept$max_n_pass_in_any_group, kept$gene_id), ]
+write.table(kept, file = opt$output, sep = "\t", quote = FALSE, row.names = FALSE, na = "NA")
 
 if (opt$write_summary) {
   cat(sprintf("Samples analysed: %d\n", length(analysis_samples)))

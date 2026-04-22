@@ -14,10 +14,10 @@ equivalent file with the `count` column replaced by `TPM`.
 ### Requirements
 
 - R (≥ 4.0)
-- R packages: `optparse`, `data.table`
+- R packages: `optparse`
 
 ```r
-install.packages(c("optparse", "data.table"))
+install.packages("optparse")
 ```
 
 ### Inputs
@@ -95,10 +95,10 @@ all input files.
 ### Requirements
 
 - R (≥ 4.0)
-- R packages: `optparse`, `data.table`
+- R packages: `optparse`
 
 ```r
-install.packages(c("optparse", "data.table"))
+install.packages("optparse")
 ```
 
 ### Inputs
@@ -192,10 +192,10 @@ biological group.
 ### Requirements
 
 - R (≥ 4.0)
-- R packages: `optparse`, `data.table`
+- R packages: `optparse`
 
 ```r
-install.packages(c("optparse", "data.table"))
+install.packages("optparse")
 ```
 
 ### Inputs
@@ -346,10 +346,10 @@ samples as columns) rather than individual per-sample RSEM files.
 ### Requirements
 
 - R (≥ 4.0)
-- R packages: `optparse`, `data.table`
+- R packages: `optparse`
 
 ```r
-install.packages(c("optparse", "data.table"))
+install.packages("optparse")
 ```
 
 ### Inputs

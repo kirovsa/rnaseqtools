@@ -2,7 +2,6 @@
 
 suppressWarnings(suppressMessages({
   library(optparse)
-  library(data.table)
 }))
 
 option_list <- list(
@@ -62,7 +61,8 @@ logic <- toupper(opt$logic)
 if (!logic %in% c("AND", "OR")) stop("--logic must be AND or OR", call. = FALSE)
 if (opt$`min-samples` < 1) stop("--min-samples must be >= 1", call. = FALSE)
 
-meta <- fread(opt$metadata, sep = opt$`meta-sep`, header = TRUE, data.table = TRUE)
+meta <- read.table(opt$metadata, sep = opt$`meta-sep`, header = TRUE,
+                   stringsAsFactors = FALSE, check.names = FALSE)
 
 need_meta <- c(opt$`sample-col`, opt$`group-col`, opt$`path-col`)
 missing_meta <- setdiff(need_meta, names(meta))
@@ -74,11 +74,12 @@ if (length(missing_meta) > 0) {
   ), call. = FALSE)
 }
 
-meta <- unique(meta[, .(
-  sample = as.character(get(opt$`sample-col`)),
-  group  = as.character(get(opt$`group-col`)),
-  path   = as.character(get(opt$`path-col`))
-)])
+meta <- unique(data.frame(
+  sample = as.character(meta[[opt$`sample-col`]]),
+  group  = as.character(meta[[opt$`group-col`]]),
+  path   = as.character(meta[[opt$`path-col`]]),
+  stringsAsFactors = FALSE
+))
 
 if (anyNA(meta$sample) || any(meta$sample == "")) stop("Metadata has empty/NA sample IDs.", call. = FALSE)
 if (anyNA(meta$group)  || any(meta$group == ""))  stop("Metadata has empty/NA group labels.", call. = FALSE)
@@ -92,7 +93,7 @@ for (i in seq_len(nrow(meta))) {
   g <- meta$group[i]
   p <- meta$path[i]
 
-  dt <- fread(p, sep = "\t", header = TRUE, data.table = TRUE)
+  dt <- read.table(p, sep = "\t", header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
 
   required_cols <- c(opt$`id-col`, opt$`count-col`, opt$`tpm-col`)
   missing <- setdiff(required_cols, names(dt))
@@ -103,49 +104,56 @@ for (i in seq_len(nrow(meta))) {
     ), call. = FALSE)
   }
 
-  dt <- dt[, .(
-    gene_id = as.character(get(opt$`id-col`)),
-    count   = as.numeric(get(opt$`count-col`)),
-    tpm     = as.numeric(get(opt$`tpm-col`))
-  )]
+  dt <- data.frame(
+    gene_id = as.character(dt[[opt$`id-col`]]),
+    count   = as.numeric(dt[[opt$`count-col`]]),
+    tpm     = as.numeric(dt[[opt$`tpm-col`]]),
+    stringsAsFactors = FALSE
+  )
 
   # Use isTRUE() pattern (robust to NULL/non-logical values)
   if (!isTRUE(opt$keep_nonfinite)) {
-    dt <- dt[is.finite(count) & is.finite(tpm)]
+    dt <- dt[is.finite(dt$count) & is.finite(dt$tpm), ]
   }
 
   if (logic == "AND") {
-    dt[, pass := (count >= opt$`min-count`) & (tpm >= opt$`min-tpm`)]
+    dt$pass <- (dt$count >= opt$`min-count`) & (dt$tpm >= opt$`min-tpm`)
   } else {
-    dt[, pass := (count >= opt$`min-count`) | (tpm >= opt$`min-tpm`)]
+    dt$pass <- (dt$count >= opt$`min-count`) | (dt$tpm >= opt$`min-tpm`)
   }
 
-  per_sample_list[[i]] <- dt[, .(gene_id, pass, sample = s, group = g)]
+  per_sample_list[[i]] <- data.frame(gene_id = dt$gene_id, pass = dt$pass,
+                                     sample = s, group = g, stringsAsFactors = FALSE)
 }
 
-ps <- rbindlist(per_sample_list, use.names = TRUE, fill = TRUE)
+ps <- do.call(rbind, per_sample_list)
 
 # Count passing samples per gene within each group
-group_counts <- ps[pass == TRUE, .(n_pass = uniqueN(sample)), by = .(group, gene_id)]
+ps_pass <- ps[ps$pass == TRUE, ]
+group_counts <- aggregate(sample ~ group + gene_id, data = ps_pass,
+                          FUN = function(x) length(unique(x)))
+names(group_counts)[names(group_counts) == "sample"] <- "n_pass"
 
 # For each gene, find the max number of passing samples across groups
-max_pass_by_gene <- group_counts[, .(max_n_pass_in_any_group = max(n_pass, na.rm = TRUE)), by = gene_id]
+max_pass_by_gene <- aggregate(n_pass ~ gene_id, data = group_counts,
+                               FUN = function(x) max(x, na.rm = TRUE))
+names(max_pass_by_gene)[names(max_pass_by_gene) == "n_pass"] <- "max_n_pass_in_any_group"
 
 # Genes that never pass in any sample won't appear in group_counts; add them with 0
 all_genes <- unique(ps$gene_id)
 max_pass_by_gene <- merge(
-  data.table(gene_id = all_genes),
+  data.frame(gene_id = all_genes, stringsAsFactors = FALSE),
   max_pass_by_gene,
   by = "gene_id",
   all.x = TRUE
 )
-max_pass_by_gene[is.na(max_n_pass_in_any_group), max_n_pass_in_any_group := 0L]
+max_pass_by_gene$max_n_pass_in_any_group[is.na(max_pass_by_gene$max_n_pass_in_any_group)] <- 0L
 
-kept <- max_pass_by_gene[max_n_pass_in_any_group >= opt$`min-samples`]
+kept <- max_pass_by_gene[max_pass_by_gene$max_n_pass_in_any_group >= opt$`min-samples`, ]
 
 # Write kept genes + supporting statistic
-setorder(kept, -max_n_pass_in_any_group, gene_id)
-fwrite(kept, file = opt$output, sep = "\t", quote = FALSE, na = "NA")
+kept <- kept[order(-kept$max_n_pass_in_any_group, kept$gene_id), ]
+write.table(kept, file = opt$output, sep = "\t", quote = FALSE, row.names = FALSE, na = "NA")
 
 if (isTRUE(opt$write_summary)) {
   cat(sprintf("Samples in metadata: %d\n", nrow(meta)))
